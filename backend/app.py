@@ -12,11 +12,11 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# Găsim automat calea absolută a folderului curent (backend)
+# Directorul backend/
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
+# Urcăm un nivel la rădăcină pentru a găsi folderul static
+STATIC_DIR = BASE_DIR.parent / "static"
 
-# Montăm fișierele statice și template-urile folosind calea absolută
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 
