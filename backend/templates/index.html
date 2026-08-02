@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+</head>
+<body>
+    <div class="radar-container">
+        <header>
+            <h1>RadarScope</h1>
+            <div class="status-group">
+                <p class="status">System Status: <span id="connection-status">Initializing...</span></p>
+                <p class="status">Permission: <span id="permission-status">Unknown</span></p>
+            </div>
+        </header>
+
+        <main class="radar-layout">
+            <div class="telemetry-panel">
+                <button id="geo-btn" class="btn-primary">Request Radar Position</button>
+                <div class="coords-display">
+                    <div>LAT: <span id="lat-val">--</span></div>
+                    <div>LON: <span id="lon-val">--</span></div>
+                </div>
+                <div id="radar-message" class="system-message">Awaiting position telemetry...</div>
+            </div>
+
+            <div class="radar-viewport">
+                <canvas id="radar-canvas"></canvas>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', path='js/main.js') }}"></script>
+</body>
+</html>
