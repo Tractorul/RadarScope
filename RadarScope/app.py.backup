@@ -1,0 +1,200 @@
+"""
+Main FastAPI application for RadarScope.
+"""
+
+import asyncio
+import json
+import math
+from datetime import datetime, timezone
+from typing import Dict, Set
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import uvicorn
+
+from opensky import OpenSkyClient
+from websocket_manager import ConnectionManager
+from radar_math import haversine_distance, calculate_bearing, radar_coordinates, interpolate_position
+import models
+
+app = FastAPI(title="RadarScope", description="A military-style radar display for aircraft tracking")
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Jinja2 templates
+templates = Jinja2Templates(directory="templates")
+
+# WebSocket manager
+manager = ConnectionManager()
+
+# OpenSky client (anonymous by default)
+opensky_client = OpenSkyClient()
+
+# Configuration
+UPDATE_INTERVAL = 5.0  # seconds (OpenSky API recommends at least 5 seconds between requests for anonymous)
+DEFAULT_RANGE_NM = 80  # nautical miles (approx 150 km)
+ZOOM_LEVELS = [13.5, 27, 54, 80, 135]  # 25, 50, 100, 150, 250 km in nautical miles
+
+# Store current user location and aircraft data
+user_location = {
+    "latitude": None,
+    "longitude": None,
+    "has_location": False
+}
+
+# Store aircraft data by ICAO24 for smoothing
+aircraft_cache: Dict[str, dict] = {}
+
+# Background task for fetching aircraft data
+async def fetch_aircraft_data():
+    """Background task to fetch aircraft data from OpenSky API."""
+    while True:
+        try:
+            if user_location["has_location"] and user_location["latitude"] is not None and user_location["longitude"] is not None:
+                # Calculate bounding box around user position
+                lat = user_location["latitude"]
+                lon = user_location["longitude"]
+                # Approximate: 1 degree latitude ≈ 60 nm, 1 degree longitude ≈ 60 nm * cos(lat)
+                lat_delta = DEFAULT_RANGE_NM / 60.0
+                lon_delta = DEFAULT_RANGE_NM / (60.0 * math.cos(math.radians(lat))) if lat != 90 else 0
+                bbox = (
+                    lat - lat_delta,
+                    lon - lon_delta,
+                    lat + lat_delta,
+                    lon + lon_delta
+                )
+
+                states = opensky_client.get_states_in_bbox(bbox)
+                if states:
+                    current_time = datetime.now(timezone.utc)
+                    current_aircraft = {}
+
+                    for state in states:
+                        # Skip if no position
+                        if state["latitude"] is None or state["longitude"] is None:
+                            continue
+
+                        icao24 = state["icao24"]
+                        # Calculate distance and bearing from user
+                        distance_nm = haversine_distance(
+                            user_location["latitude"], user_location["longitude"],
+                            state["latitude"], state["longitude"]
+                        )
+                        bearing = calculate_bearing(
+                            user_location["latitude"], user_location["longitude"],
+                            state["latitude"], state["longitude"]
+                        )
+
+                        # Apply smoothing if we have previous position
+                        smoothed_lat, smoothed_lon = state["latitude"], state["longitude"]
+                        if icao24 in aircraft_cache:
+                            old_pos = (aircraft_cache[icao24]["latitude"], aircraft_cache[icao24]["longitude"])
+                            new_pos = (state["latitude"], state["longitude"])
+                            # Simple interpolation factor (could be based on time delta)
+                            smoothed_lat, smoothed_lon = interpolate_position(
+                                old_pos, new_pos, 0.3  # 30% towards new position
+                            )
+                            # Recalculate distance and bearing with smoothed position
+                            distance_nm = haversine_distance(
+                                user_location["latitude"], user_location["longitude"],
+                                smoothed_lat, smoothed_lon
+                            )
+                            bearing = calculate_bearing(
+                                user_location["latitude"], user_location["longitude"],
+                                smoothed_lat, smoothed_lon
+                            )
+
+                        aircraft_cache[icao24] = {
+                            "icao24": icao24,
+                            "callsign": state["callsign"],
+                            "origin_country": state["origin_country"],
+                            "longitude": smoothed_lon,
+                            "latitude": smoothed_lat,
+                            "baro_altitude": state["baro_altitude"],
+                            "velocity": state["velocity"],
+                            "true_track": state["true_track"],
+                            "vertical_rate": state["vertical_rate"],
+                            "on_ground": state["on_ground"],
+                            "distance": distance_nm,
+                            "bearing": bearing,
+                            "last_update": current_time
+                        }
+                        current_aircraft[icao24] = aircraft_cache[icao24]
+
+                    # Prepare data for broadcast
+                    aircraft_list = list(current_aircraft.values())
+
+                    # Convert to JSON-serializable format
+                    json_data = json.dumps({
+                        "type": "aircraft_update",
+                        "data": aircraft_list,
+                        "timestamp": current_time.isoformat()
+                    }, default=str)
+
+                    # Broadcast to all connected clients
+                    await manager.broadcast(json_data)
+                else:
+                    # No data - send empty update
+                    await manager.broadcast(json.dumps({
+                        "type": "aircraft_update",
+                        "data": [],
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }))
+            else:
+                # No user location yet
+                await manager.broadcast(json.dumps({
+                    "type": "aircraft_update",
+                    "data": [],
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }))
+        except Exception as e:
+            print(f"Error in fetch_aircraft_data: {e}")
+            # Send error state?
+            await manager.broadcast(json.dumps({
+                "type": "error",
+                "message": "Failed to fetch aircraft data",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }))
+
+        # Wait for next update
+        await asyncio.sleep(UPDATE_INTERVAL)
+
+# Start background task on startup
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(fetch_aircraft_data())
+
+# Routes
+@app.get("/")
+async def get(request: Request):
+    """Serve the main radar page."""
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time updates."""
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive and handle incoming messages
+            data = await websocket.receive_text()
+            # Handle client messages (e.g., location updates, UI commands)
+            try:
+                message = json.loads(data)
+                if message.get("type") == "location_update":
+                    user_location["latitude"] = message.get("latitude")
+                    user_location["longitude"] = message.get("longitude")
+                    user_location["has_location"] = True
+                    print(f"Updated user location: {user_location['latitude']}, {user_location['longitude']}")
+                elif message.get("type") == "ui_command":
+                    # Handle UI commands like zoom, toggle sweep, etc.
+                    # For now, just acknowledge
+                    pass
+            except json.JSONDecodeError:
+                pass
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

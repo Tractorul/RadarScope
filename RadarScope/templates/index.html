@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RadarScope</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div id="radar-container">
+        <div id="radar-display">
+            <!-- Radar sweep and elements will be drawn here -->
+        </div>
+        <div id="ui-overlay">
+            <div id="controls">
+                <div class="control-group">
+                    <label>Range:
+                        <select id="range-select">
+                            <option value="13.5">25 km</option>
+                            <option value="27" selected>50 km</option>
+                            <option value="54">100 km</option>
+                            <option value="80">150 km</option>
+                            <option value="135">250 km</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="control-group">
+                    <label><input type="checkbox" id="labels-toggle" checked> Labels</label>
+                </div>
+                <div class="control-group">
+                    <label><input type="checkbox" id="sweep-toggle" checked> Sweep</label>
+                </div>
+                <div class="control-group">
+                    <label><input type="checkbox" id="pause-toggle"> Pause</label>
+                </div>
+            </div>
+            <div id="info-panel">
+                <div id="stats">
+                    <div>Tracks: <span id="track-count">0</span></div>
+                    <div>FPS: <span id="fps-counter">0</span></div>
+                    <div>UTC: <span id="utc-time">--:--:--</span></div>
+                    <div>Position: <span id="user-position">--.--°, --.--°</span></div>
+                </div>
+                <div id="status-indicator" status="ok">●</div>
+                <div id="aircraft-info-panel" class="hidden">
+                    <div class="panel-header">
+                        <span>Aircraft Information</span>
+                        <button id="close-info-panel">×</button>
+                    </div>
+                    <div class="panel-body">
+                        <p><strong>ICAO24:</strong> <span id="info-icao24">-</span></p>
+                        <p><strong>Callsign:</strong> <span id="info-callsign">-</span></p>
+                        <p><strong>Latitude:</strong> <span id="info-latitude">-</span></p>
+                        <p><strong>Longitude:</strong> <span id="info-longitude">-</span></p>
+                        <p><strong>Altitude:</strong> <span id="info-altitude">-</span></p>
+                        <p><strong>Velocity:</strong> <span id="info-velocity">-</span></p>
+                        <p><strong>Heading:</strong> <span id="info-heading">-</span></p>
+                        <p><strong>Updated:</strong> <span id="info-updated">-</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/radar_math.js"></script>
+    <script src="/static/js/aircraft.js"></script>
+    <script src="/static/js/websocket.js"></script>
+    <script src="/static/js/ui.js"></script>
+    <script src="/static/js/animations.js"></script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
