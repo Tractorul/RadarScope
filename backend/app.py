@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import requests
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -11,8 +12,13 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+# Găsim automat calea absolută a folderului curent (backend)
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+
+# Montăm fișierele statice și template-urile folosind calea absolută
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(STATIC_DIR))
 
 
 @app.get("/")
@@ -25,9 +31,8 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("Conexiune WebSocket client stabilită.")
 
-    # Preluăm credențialele în mod securizat din variabilele de mediu
-    username = os.getenv("OPENSKY_USERNAME")
-    password = os.getenv("OPENSKY_PASSWORD")
+    username = os.getenv("OPENSKY_USERNAME", "razvan.perjeru@gmail.com-api-client")
+    password = os.getenv("OPENSKY_PASSWORD", "5fT9b4LHh1hUxwcPy6OR1d1sGLqVixZv")
 
     try:
         while True:
